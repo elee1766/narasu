@@ -113,6 +113,7 @@ func (s *Store) Cleanup(ctx context.Context, now time.Time, age time.Duration) e
 	var cur rueidis.ScanEntry
 	var err error
 	count := 1024
+	var badKeys []string
 	for {
 		match := s.prefix() + "*"
 		cur, err = s.r.Do(ctx, s.r.B().
@@ -127,15 +128,18 @@ func (s *Store) Cleanup(ctx context.Context, now time.Time, age time.Duration) e
 			// extract timestamp from prefix:timestamp:{bucket}
 			prefix := s.prefix()
 			if !strings.HasPrefix(v, prefix) {
+				badKeys = append(badKeys, v)
 				continue
 			}
 			noPrefix := strings.TrimPrefix(v, prefix)
 			parts := strings.SplitN(noPrefix, ":", 2)
 			if len(parts) != 2 {
+				badKeys = append(badKeys, v)
 				continue
 			}
 			timestamp, err := strconv.Atoi(parts[0])
 			if err != nil {
+				badKeys = append(badKeys, v)
 				continue
 			}
 			if nowseconds-timestamp > ageSeconds {
@@ -146,6 +150,9 @@ func (s *Store) Cleanup(ctx context.Context, now time.Time, age time.Duration) e
 			break
 		}
 	}
+	// TODO: we should do something about the badKeys here.
+	// probably we could add an "onBadKey" callback option to the Store,
+	// so downstream consumer can chose to do something like log them, or just ignore them
 	if len(expired) > 0 {
 		// delete them
 		err = s.r.Do(ctx, s.r.B().Del().Key(expired...).Build()).Error()
